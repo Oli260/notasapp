@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NotasApp</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- checkbox toggle for CSS-only modal -->
+  <input type="checkbox" id="modal-toggle" hidden>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#" class="logo">Notas<span>App</span></a>
+      <button type="button" class="btn new-note" id="open-modal-btn">+ Nueva nota</button>
+    </div>
+  </header>
+
+  <main class="container main-content">
+    <h1 class="page-title">Mis notas</h1>
+    <p class="subtitle">Todo lo que no quiero olvidar, en un solo lugar.</p>
+
+    <section class="notes-grid" id="notes-grid" aria-live="polite"></section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Hecho con HTML en clase de Litoral Code 🍪</p>
+  </footer>
+
+  <!-- Modal (CSS-only) -->
+  <div class="modal-overlay" aria-hidden="true"></div>
+
+  <aside class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button type="button" class="modal-close" id="close-modal-btn" aria-label="Cerrar ventana">×</button>
+    <div class="modal-body">
+      <h2 id="modal-title">Nueva nota</h2>
+      <p class="modal-sub">Apunta esa idea antes de que se te escape.</p>
+
+      <form class="note-form" id="note-form" action="#" method="post">
+        <input type="hidden" name="note-id" value="">
+
+        <label class="field">
+          <span class="field-label">Título</span>
+          <input type="text" name="title" placeholder="Ej. Comprar cascos talla M">
+        </label>
+
+        <fieldset class="field categories">
+          <legend>Categoría</legend>
+          <div class="category-options">
+            <input type="radio" id="cat-trabajo" name="category" value="trabajo" checked>
+            <label for="cat-trabajo">Trabajo</label>
+
+            <input type="radio" id="cat-ideas" name="category" value="ideas">
+            <label for="cat-ideas">Ideas</label>
+
+            <input type="radio" id="cat-personal" name="category" value="personal">
+            <label for="cat-personal">Personal</label>
+          </div>
+        </fieldset>
+
+        <label class="field">
+          <span class="field-label">Contenido</span>
+          <textarea name="content" rows="6" placeholder="Escribe aquí tu nota..."></textarea>
+        </label>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="cancel-note-btn">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Guardar nota</button>
+        </div>
+      </form>
+    </div>
+  </aside>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

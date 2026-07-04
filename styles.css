@@ -1,0 +1,77 @@
+:root{
+  --bg:#f3f4f6;
+  --card:#ffffff;
+  --muted:#6b7280;
+  --primary:#5b4bff;
+  --accent:#7c6bff;
+  --radius:12px;
+  --container:1100px;
+  --shadow:0 6px 18px rgba(15,23,42,0.08);
+  --glass:rgba(99,102,241,0.08);
+  font-size:16px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  background:var(--bg);
+  color:#111827;
+  -webkit-font-smoothing:antialiased;
+}
+.container{max-width:var(--container);margin:0 auto;padding:2rem}
+.site-header{background:#fff;border-bottom:1px solid rgba(15,23,42,0.04)}
+.header-inner{display:flex;align-items:center;justify-content:space-between;padding:1rem 0}
+.logo{font-weight:700;color:#111827;text-decoration:none}
+.logo span{color:var(--accent)}
+.btn{display:inline-block;padding:.6rem 1rem;border-radius:12px;background:var(--primary);color:#fff;text-decoration:none;border:none;cursor:pointer}
+.new-note{background:linear-gradient(180deg,var(--primary),var(--accent));box-shadow:0 6px 18px rgba(91,75,255,0.18)}
+.main-content{padding-top:2.5rem}
+.page-title{font-size:2rem;margin:0 0 .25rem}
+.subtitle{color:var(--muted);margin:0 0 1.75rem}
+.notes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1.25rem}
+.note-card{background:var(--card);padding:1.25rem;border-radius:12px;box-shadow:var(--shadow);min-height:140px}
+.note-card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:.75rem;margin-bottom:.5rem}
+.note-card h3{margin:0;font-size:1rem}
+.note-card p{margin:0;color:var(--muted);line-height:1.4}
+.note-actions{display:flex;gap:.35rem}
+.icon-btn{border:none;background:#f3f4f6;color:#111827;border-radius:999px;padding:.35rem .45rem;cursor:pointer}
+.icon-btn.danger{color:#b91c1c}
+.note-footer{margin-top:1rem}
+.chip{display:inline-block;background:var(--glass);color:var(--primary);padding:.25rem .6rem;border-radius:999px;font-size:.8rem;text-transform:capitalize}
+.empty-state{grid-column:1/-1;color:var(--muted);padding:2rem;background:#fff;border-radius:12px;text-align:center}
+.site-footer{text-align:center;padding:3rem 0;color:var(--muted)}
+
+/* Modal styles */
+.modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,0.45);opacity:0;visibility:hidden;transition:opacity .25s ease,visibility .25s}
+.modal{position:fixed;left:50%;top:10%;transform:translate(-50%,-10%) scale(.98);width:min(760px,calc(100% - 2rem));background:var(--card);border-radius:12px;box-shadow:0 18px 50px rgba(2,6,23,0.2);padding:1.25rem;opacity:0;visibility:hidden;transition:opacity .25s ease,transform .25s ease,visibility .25s}
+.modal-close{position:absolute;right:14px;top:10px;font-size:1.25rem;color:var(--muted);cursor:pointer}
+.modal-body{padding:1rem 1rem 0}
+.modal-sub{color:var(--muted);margin-top:0}
+.note-form{margin-top:1rem}
+.field{display:block;margin-bottom:1rem}
+.field-label{display:block;margin-bottom:.5rem;font-weight:600;font-size:.9rem}
+input[type="text"],textarea{width:100%;padding:.9rem;border-radius:10px;border:1px solid rgba(15,23,42,0.06);background:rgba(15,23,42,0.03);font-size:1rem}
+textarea{resize:vertical}
+.categories .category-options{display:flex;gap:.5rem}
+.categories input{display:none}
+.categories label{padding:.4rem .75rem;border-radius:999px;border:1px solid rgba(15,23,42,0.06);background:#fff;color:var(--muted);cursor:pointer}
+.categories input:checked + label{background:linear-gradient(180deg,var(--primary),var(--accent));color:#fff;border:none;box-shadow:0 6px 18px rgba(91,75,255,0.1)}
+.form-actions{display:flex;justify-content:flex-end;gap:.75rem;margin-top:1rem}
+.btn.btn-secondary{background:#fff;color:#111827;border:1px solid rgba(15,23,42,0.06);padding:.5rem .9rem}
+.btn.btn-primary{background:linear-gradient(180deg,var(--primary),var(--accent));padding:.5rem .9rem}
+
+/* Show modal when checkbox is checked */
+#modal-toggle:checked ~ .modal-overlay{opacity:1;visibility:visible}
+#modal-toggle:checked ~ .modal{opacity:1;visibility:visible;transform:translate(-50%,0) scale(1)}
+
+/* Accessibility focus */
+.modal:focus{outline:none}
+
+/* Responsive tweaks */
+@media (max-width:640px){
+  .container{padding:1rem}
+  .header-inner{padding:.5rem 0}
+  .page-title{font-size:1.5rem}
+  .modal{top:6%}
+}
