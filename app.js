@@ -1,6 +1,10 @@
 // Estado inicial de la app.
-// Se guarda en localStorage para que las notas persistan al recargar.
+// Se intenta guardar en Supabase y se respalda en localStorage para evitar errores.
+const SUPABASE_URL = 'https://rczqmuedddwpswyxkyea.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_A3SfDiwPNpAMKGcWfP1UUg_TYRBE_eB';
 const STORAGE_KEY = 'notes-app-data';
+const TABLE_CANDIDATES = ['notas', 'nota'];
+let activeTableName = 'notas';
 
 let notes = [];
 let editingId = null;
@@ -19,47 +23,170 @@ const titleInput = noteForm.querySelector('input[name="title"]');
 const categoryInputs = noteForm.querySelectorAll('input[name="category"]');
 const contentInput = noteForm.querySelector('textarea[name="content"]');
 
-// Cargar datos desde localStorage si existen.
-function loadNotes() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    try {
-      notes = JSON.parse(saved);
-    } catch (error) {
-      console.error('No se pudieron leer las notas guardadas:', error);
-      notes = [];
+function getDefaultNotes() {
+  return [
+    {
+      id: crypto.randomUUID(),
+      title: 'Comprar cascos talla M',
+      category: 'trabajo',
+      content: 'Son los que más se venden. Pedir reposición al proveedor.',
+      createdAt: 'Hoy'
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Grabar episodio del podcast',
+      category: 'ideas',
+      content: 'Tema: cómo elegir tu primer casco sin morir en el intento.',
+      createdAt: 'Ayer'
+    },
+    {
+      id: crypto.randomUUID(),
+      title: 'Idea para la clase',
+      category: 'personal',
+      content: 'Apagar el CSS en vivo y que vean los huesos del HTML.',
+      createdAt: 'Lunes'
     }
-  } else {
-    // Datos iniciales para ver la interfaz con contenido.
-    notes = [
-      {
-        id: crypto.randomUUID(),
-        title: 'Comprar cascos talla M',
-        category: 'trabajo',
-        content: 'Son los que más se venden. Pedir reposición al proveedor.',
-        createdAt: 'Hoy'
-      },
-      {
-        id: crypto.randomUUID(),
-        title: 'Grabar episodio del podcast',
-        category: 'ideas',
-        content: 'Tema: cómo elegir tu primer casco sin morir en el intento.',
-        createdAt: 'Ayer'
-      },
-      {
-        id: crypto.randomUUID(),
-        title: 'Idea para la clase',
-        category: 'personal',
-        content: 'Apagar el CSS en vivo y que vean los huesos del HTML.',
-        createdAt: 'Lunes'
-      }
-    ];
+  ];
+}
+
+function readLocalNotes() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return null;
+
+  try {
+    return JSON.parse(saved);
+  } catch (error) {
+    console.error('No se pudieron leer las notas guardadas localmente:', error);
+    return null;
   }
 }
 
-// Guardar notas en localStorage.
-function saveNotes() {
+function persistLocalNotes() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+}
+
+function serializeNoteForSupabase(note) {
+  return {
+    id: note.id,
+    titulo: note.title,
+    contenido: JSON.stringify({
+      content: note.content,
+      category: note.category || 'trabajo'
+    }),
+    creada_en: new Date().toISOString(),
+    modificada_en: new Date().toISOString()
+  };
+}
+
+function mapNoteFromSupabase(row) {
+  let content = '';
+  let category = 'trabajo';
+
+  try {
+    const parsed = JSON.parse(row.contenido || '{}');
+    if (typeof parsed === 'object' && parsed !== null) {
+      content = parsed.content || '';
+      category = parsed.category || 'trabajo';
+    }
+  } catch (error) {
+    content = row.contenido || '';
+  }
+
+  return {
+    id: row.id,
+    title: row.titulo || '',
+    category,
+    content,
+    createdAt: row.creada_en || 'Ahora'
+  };
+}
+
+async function resolveActiveTableName() {
+  for (const candidate of TABLE_CANDIDATES) {
+    try {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${candidate}?select=id&limit=1`, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        return candidate;
+      }
+    } catch (error) {
+      // Se intenta con la siguiente opción.
+    }
+  }
+
+  return null;
+}
+
+// Cargar datos desde Supabase y, si falla, desde localStorage.
+async function loadNotes() {
+  try {
+    activeTableName = await resolveActiveTableName();
+    if (!activeTableName) {
+      throw new Error('No se encontró una tabla disponible en Supabase');
+    }
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?select=id,titulo,contenido,creada_en,modificada_en&order=creada_en.desc,modificada_en.desc`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    notes = (data || []).map(mapNoteFromSupabase);
+    persistLocalNotes();
+  } catch (error) {
+    const localNotes = readLocalNotes();
+    notes = Array.isArray(localNotes) && localNotes.length ? localNotes : getDefaultNotes();
+    persistLocalNotes();
+  }
+
+  renderNotes();
+}
+
+// Guardar notas en Supabase y respaldarlas en localStorage.
+async function saveNotes() {
+  const rows = notes.map(serializeNoteForSupabase);
+
+  try {
+    if (!activeTableName) {
+      activeTableName = await resolveActiveTableName();
+    }
+
+    if (!activeTableName) {
+      throw new Error('No se encontró una tabla disponible en Supabase');
+    }
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        'Content-Type': 'application/json',
+        Prefer: 'return=minimal,resolution=merge-duplicates'
+      },
+      body: JSON.stringify(rows)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    persistLocalNotes();
+  } catch (error) {
+    persistLocalNotes();
+  }
 }
 
 // Mostrar notas en la grilla.
@@ -131,7 +258,7 @@ function closeModal() {
 }
 
 // Crear o actualizar una nota según el modo.
-function handleSubmit(event) {
+async function handleSubmit(event) {
   event.preventDefault();
 
   const title = titleInput.value.trim();
@@ -160,18 +287,19 @@ function handleSubmit(event) {
     notes.unshift(newNote);
   }
 
-  saveNotes();
+  await saveNotes();
   renderNotes();
   closeModal();
 }
 
 // Eliminar una nota.
-function deleteNote(noteId) {
+async function deleteNote(noteId) {
   const confirmed = window.confirm('¿Seguro que quieres borrar esta nota?');
   if (!confirmed) return;
 
   notes = notes.filter((note) => note.id !== noteId);
-  saveNotes();
+
+  await saveNotes();
   renderNotes();
 }
 
@@ -188,7 +316,7 @@ notesGrid.addEventListener('click', (event) => {
   }
 
   if (action === 'delete') {
-    deleteNote(noteId);
+    void deleteNote(noteId);
   }
 });
 
@@ -196,7 +324,9 @@ notesGrid.addEventListener('click', (event) => {
 openModalBtn.addEventListener('click', openModal);
 closeModalBtn.addEventListener('click', closeModal);
 cancelNoteBtn.addEventListener('click', closeModal);
-noteForm.addEventListener('submit', handleSubmit);
+noteForm.addEventListener('submit', (event) => {
+  void handleSubmit(event);
+});
 
 // Cerrar al hacer clic fuera del contenido del modal.
 modalToggle.addEventListener('change', () => {
@@ -206,5 +336,4 @@ modalToggle.addEventListener('change', () => {
 });
 
 // Inicializar la app.
-loadNotes();
-renderNotes();
+void loadNotes();
