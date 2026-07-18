@@ -24,6 +24,24 @@
     <div class="sync-status" id="sync-status">Sincronizando...</div>
 
     <section class="notes-grid" id="notes-grid" aria-live="polite"></section>
+
+    <section class="chat-panel" id="chat-panel">
+      <div class="chat-header">
+        <div>
+          <h2>Chat con tus notas</h2>
+          <p class="chat-subtitle">Haz una pregunta y recibe respuestas basadas en tus notas.</p>
+        </div>
+      </div>
+
+      <div class="chat-messages" id="chat-messages" aria-live="polite"></div>
+
+      <form class="chat-form" id="chat-form">
+        <input type="text" id="chat-question" name="chat-question" placeholder="Escribe tu pregunta..." autocomplete="off">
+        <button type="submit" class="btn btn-primary">Enviar</button>
+      </form>
+
+      <p class="chat-hint">La pregunta se envía al servidor y la clave de Groq nunca se expone en el cliente.</p>
+    </section>
   </main>
 
   <footer class="site-footer">

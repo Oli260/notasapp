@@ -20,6 +20,7 @@ const supabaseClient = (() => {
 
 let realtimeChannel = null;
 let pollingTimer = null;
+const POLLING_INTERVAL_MS = 3000;
 let notes = [];
 let editingId = null;
 
@@ -37,7 +38,9 @@ const noteIdInput = noteForm.querySelector('input[name="note-id"]');
 const titleInput = noteForm.querySelector('input[name="title"]');
 const categoryInputs = noteForm.querySelectorAll('input[name="category"]');
 const contentInput = noteForm.querySelector('textarea[name="content"]');
-
+const chatForm = document.getElementById('chat-form');
+const chatQuestionInput = document.getElementById('chat-question');
+const chatMessages = document.getElementById('chat-messages');
 function getDefaultNotes() {
   return [
     {
@@ -165,9 +168,12 @@ function applyRealtimeChange(row, eventType) {
 }
 
 function handleRealtimeEvent(payload) {
+  console.log('Realtime event payload:', payload);
   const row = payload.record ?? payload.new ?? payload.old;
   if (!row) return;
-  applyRealtimeChange(row, payload.eventType || payload.type);
+  const eventType = payload.eventType || payload.type || payload.event;
+  console.log('Realtime event type:', eventType, 'row:', row);
+  applyRealtimeChange(row, eventType);
 }
 
 function subscribeRealtime() {
@@ -188,8 +194,11 @@ function subscribeRealtime() {
     channel.subscribe();
 
     realtimeChannel = channel;
-    console.log('Supabase Realtime conectado en tabla:', activeTableName);
-    setSyncStatus('Conectado a Supabase Realtime');
+    console.log('Supabase Realtime iniciado en tabla:', activeTableName);
+    setSyncStatus('Conectando a Supabase Realtime...');
+    channel.on('broadcast', { event: '*', schema: 'public', table: activeTableName }, (payload) => {
+      console.log('Broadcast event:', payload);
+    });
     return true;
   } catch (error) {
     console.warn('Error al suscribir Realtime:', error);
@@ -224,23 +233,26 @@ async function fetchNotesFromSupabase() {
   return (data || []).map(mapNoteFromSupabase);
 }
 
-function startPollingNotes(intervalMs = 3000) {
+function startPollingNotes() {
   if (pollingTimer) return;
 
   async function poll() {
     try {
       const latestNotes = await fetchNotesFromSupabase();
-      notes = latestNotes;
-      persistLocalNotes();
-      renderNotes();
-      console.log('Notas actualizadas por sondeo en segundo plano');
+      const hasChanges = JSON.stringify(notes) !== JSON.stringify(latestNotes);
+      if (hasChanges) {
+        notes = latestNotes;
+        persistLocalNotes();
+        renderNotes();
+        console.log('Notas actualizadas por sondeo en segundo plano');
+      }
     } catch (error) {
       console.warn('Fallo el sondeo de notas:', error);
     }
   }
 
   poll();
-  pollingTimer = setInterval(poll, intervalMs);
+  pollingTimer = setInterval(poll, POLLING_INTERVAL_MS);
   setSyncStatus('Sondeo activo: actualizando cada 3 segundos');
 }
 
@@ -343,6 +355,26 @@ async function deleteNoteFromSupabase(noteId) {
 }
 
 // Mostrar notas en la grilla.
+function appendChatMessage(role, message) {
+  if (!chatMessages) return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = `chat-message ${role}`;
+
+  const roleLabel = document.createElement('span');
+  roleLabel.className = 'chat-message-role';
+  roleLabel.textContent = role === 'assistant' ? 'Groq' : 'Tú';
+
+  const content = document.createElement('div');
+  content.className = 'chat-message-content';
+  content.textContent = message;
+
+  wrapper.appendChild(roleLabel);
+  wrapper.appendChild(content);
+  chatMessages.appendChild(wrapper);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
 function renderNotes() {
   if (!notes.length) {
     notesGrid.innerHTML = '<p class="empty-state">Aún no hay notas. Crea la primera.</p>';
@@ -369,6 +401,51 @@ function renderNotes() {
 
     notesGrid.appendChild(card);
   });
+}
+
+async function askGroq(question) {
+  if (!question) return;
+
+  const notePayload = notes.map((note) => ({
+    id: note.id,
+    title: note.title,
+    category: note.category,
+    content: note.content,
+    createdAt: note.createdAt
+  }));
+
+  appendChatMessage('user', question);
+  appendChatMessage('assistant', 'Pensando...');
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ question, notes: notePayload })
+    });
+
+    const data = await response.json();
+    const lastMessage = chatMessages.lastElementChild;
+    if (lastMessage && lastMessage.querySelector('.chat-message-role')?.textContent === 'Groq') {
+      lastMessage.remove();
+    }
+
+    if (!response.ok) {
+      const error = data?.error || 'Error al consultar a Groq';
+      appendChatMessage('assistant', typeof error === 'string' ? error : JSON.stringify(error));
+      return;
+    }
+
+    appendChatMessage('assistant', data.answer || 'Groq no devolvió una respuesta.');
+  } catch (error) {
+    const lastMessage = chatMessages.lastElementChild;
+    if (lastMessage && lastMessage.querySelector('.chat-message-role')?.textContent === 'Groq') {
+      lastMessage.remove();
+    }
+    appendChatMessage('assistant', 'Error en la consulta: ' + (error?.message || error));
+  }
 }
 
 // Abrir modal para crear una nota nueva.
@@ -448,6 +525,15 @@ async function handleSubmit(event) {
   closeModal();
 }
 
+// Eventos del chat.
+chatForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const question = chatQuestionInput?.value.trim();
+  if (!question) return;
+  chatQuestionInput.value = '';
+  void askGroq(question);
+});
+
 // Eliminar una nota.
 async function deleteNote(noteId) {
   const confirmed = window.confirm('¿Seguro que quieres borrar esta nota?');
@@ -496,7 +582,8 @@ modalToggle.addEventListener('change', () => {
 initSyncStatus();
 void loadNotes().then(async () => {
   const isRealtimeConnected = await subscribeRealtime();
+  startPollingNotes();
   if (!isRealtimeConnected) {
-    startPollingNotes(3000);
+    console.warn('Realtime no se conectó, usando sondeo de respaldo.');
   }
 });
