@@ -6,6 +6,7 @@ const STORAGE_KEY = 'notes-app-data';
 const TABLE_CANDIDATES = ['notas', 'nota'];
 let activeTableName = 'notas';
 
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 let notes = [];
 let editingId = null;
 
@@ -123,6 +124,41 @@ async function resolveActiveTableName() {
   return null;
 }
 
+function applyRealtimeChange(row, eventType) {
+  const note = mapNoteFromSupabase(row);
+
+  if (eventType === 'INSERT') {
+    notes = [note, ...notes.filter((item) => item.id !== note.id)];
+  } else if (eventType === 'UPDATE') {
+    notes = notes.map((item) => (item.id === note.id ? note : item));
+    if (!notes.some((item) => item.id === note.id)) {
+      notes.unshift(note);
+    }
+  } else if (eventType === 'DELETE') {
+    notes = notes.filter((item) => item.id !== note.id);
+  } else {
+    return;
+  }
+
+  persistLocalNotes();
+  renderNotes();
+}
+
+function handleRealtimeEvent(payload) {
+  const row = payload.record ?? payload.new ?? payload.old;
+  if (!row) return;
+  applyRealtimeChange(row, payload.eventType);
+}
+
+function subscribeRealtime() {
+  if (!supabaseClient || !activeTableName) return;
+
+  supabaseClient
+    .channel(`realtime-${activeTableName}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: activeTableName }, handleRealtimeEvent)
+    .subscribe();
+}
+
 // Cargar datos desde Supabase y, si falla, desde localStorage.
 async function loadNotes() {
   try {
@@ -155,10 +191,7 @@ async function loadNotes() {
   renderNotes();
 }
 
-// Guardar notas en Supabase y respaldarlas en localStorage.
-async function saveNotes() {
-  const rows = notes.map(serializeNoteForSupabase);
-
+async function saveNote(note) {
   try {
     if (!activeTableName) {
       activeTableName = await resolveActiveTableName();
@@ -168,24 +201,72 @@ async function saveNotes() {
       throw new Error('No se encontró una tabla disponible en Supabase');
     }
 
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?on_conflict=id`, {
-      method: 'POST',
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal,resolution=merge-duplicates'
-      },
-      body: JSON.stringify(rows)
-    });
+    const payload = serializeNoteForSupabase(note);
 
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+    if (supabaseClient) {
+      const { error } = await supabaseClient
+        .from(activeTableName)
+        .upsert(payload, { onConflict: 'id', returning: 'minimal' });
+      if (error) {
+        throw error;
+      }
+    } else {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal,resolution=merge-duplicates'
+        },
+        body: JSON.stringify([payload])
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
     }
 
     persistLocalNotes();
   } catch (error) {
     persistLocalNotes();
+  }
+}
+
+async function deleteNoteFromSupabase(noteId) {
+  try {
+    if (!activeTableName) {
+      activeTableName = await resolveActiveTableName();
+    }
+
+    if (!activeTableName) {
+      throw new Error('No se encontró una tabla disponible en Supabase');
+    }
+
+    if (supabaseClient) {
+      const { error } = await supabaseClient
+        .from(activeTableName)
+        .delete()
+        .eq('id', noteId);
+      if (error) {
+        throw error;
+      }
+    } else {
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?id=eq.${encodeURIComponent(noteId)}`, {
+        method: 'DELETE',
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    }
+  } catch (error) {
+    console.error('No se pudo borrar la nota en Supabase:', error);
   }
 }
 
@@ -270,10 +351,12 @@ async function handleSubmit(event) {
     return;
   }
 
+  let savedNote;
+
   if (editingId) {
     notes = notes.map((note) =>
       note.id === editingId
-        ? { ...note, title, content, category }
+        ? (savedNote = { ...note, title, content, category })
         : note
     );
   } else {
@@ -285,9 +368,10 @@ async function handleSubmit(event) {
       createdAt: 'Ahora'
     };
     notes.unshift(newNote);
+    savedNote = newNote;
   }
 
-  await saveNotes();
+  await saveNote(savedNote);
   renderNotes();
   closeModal();
 }
@@ -299,7 +383,8 @@ async function deleteNote(noteId) {
 
   notes = notes.filter((note) => note.id !== noteId);
 
-  await saveNotes();
+  await deleteNoteFromSupabase(noteId);
+  persistLocalNotes();
   renderNotes();
 }
 
@@ -336,4 +421,6 @@ modalToggle.addEventListener('change', () => {
 });
 
 // Inicializar la app.
-void loadNotes();
+void loadNotes().then(() => {
+  subscribeRealtime();
+});
