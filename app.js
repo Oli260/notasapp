@@ -6,7 +6,20 @@ const STORAGE_KEY = 'notes-app-data';
 const TABLE_CANDIDATES = ['notas', 'nota'];
 let activeTableName = 'notas';
 
-const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const supabaseClient = (() => {
+  if (typeof supabase !== 'undefined' && supabase?.createClient) {
+    return supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+
+  if (typeof window !== 'undefined' && window.supabase?.createClient) {
+    return window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+
+  return null;
+})();
+
+let realtimeChannel = null;
+let pollingTimer = null;
 let notes = [];
 let editingId = null;
 
@@ -17,6 +30,7 @@ const openModalBtn = document.getElementById('open-modal-btn');
 const closeModalBtn = document.getElementById('close-modal-btn');
 const cancelNoteBtn = document.getElementById('cancel-note-btn');
 const noteForm = document.getElementById('note-form');
+const syncStatus = document.getElementById('sync-status');
 const modalTitle = document.getElementById('modal-title');
 const modalSubtitle = document.querySelector('.modal-sub');
 const noteIdInput = noteForm.querySelector('input[name="note-id"]');
@@ -124,6 +138,12 @@ async function resolveActiveTableName() {
   return null;
 }
 
+function setSyncStatus(message) {
+  if (syncStatus) {
+    syncStatus.textContent = message;
+  }
+}
+
 function applyRealtimeChange(row, eventType) {
   const note = mapNoteFromSupabase(row);
 
@@ -147,48 +167,100 @@ function applyRealtimeChange(row, eventType) {
 function handleRealtimeEvent(payload) {
   const row = payload.record ?? payload.new ?? payload.old;
   if (!row) return;
-  applyRealtimeChange(row, payload.eventType);
+  applyRealtimeChange(row, payload.eventType || payload.type);
 }
 
 function subscribeRealtime() {
-  if (!supabaseClient || !activeTableName) return;
+  if (!supabaseClient || !activeTableName) {
+    console.warn('Realtime no disponible: falta cliente o tabla activa');
+    setSyncStatus('Realtime no disponible, usando sondeo de respaldo');
+    return false;
+  }
 
-  supabaseClient
-    .channel(`realtime-${activeTableName}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: activeTableName }, handleRealtimeEvent)
-    .subscribe();
+  try {
+    if (realtimeChannel) {
+      realtimeChannel.unsubscribe();
+      realtimeChannel = null;
+    }
+
+    const channel = supabaseClient.channel(`realtime-${activeTableName}`);
+    channel.on('postgres_changes', { event: '*', schema: 'public', table: activeTableName }, handleRealtimeEvent);
+    channel.subscribe();
+
+    realtimeChannel = channel;
+    console.log('Supabase Realtime conectado en tabla:', activeTableName);
+    setSyncStatus('Conectado a Supabase Realtime');
+    return true;
+  } catch (error) {
+    console.warn('Error al suscribir Realtime:', error);
+    realtimeChannel = null;
+    setSyncStatus('Realtime falló, usando sondeo de respaldo');
+    return false;
+  }
+}
+
+async function fetchNotesFromSupabase() {
+  if (!activeTableName) {
+    activeTableName = await resolveActiveTableName();
+  }
+
+  if (!activeTableName) {
+    throw new Error('No se encontró una tabla disponible en Supabase');
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?select=id,titulo,contenido,creada_en,modificada_en&order=creada_en.desc,modificada_en.desc`, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json'
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  return (data || []).map(mapNoteFromSupabase);
+}
+
+function startPollingNotes(intervalMs = 3000) {
+  if (pollingTimer) return;
+
+  async function poll() {
+    try {
+      const latestNotes = await fetchNotesFromSupabase();
+      notes = latestNotes;
+      persistLocalNotes();
+      renderNotes();
+      console.log('Notas actualizadas por sondeo en segundo plano');
+    } catch (error) {
+      console.warn('Fallo el sondeo de notas:', error);
+    }
+  }
+
+  poll();
+  pollingTimer = setInterval(poll, intervalMs);
+  setSyncStatus('Sondeo activo: actualizando cada 3 segundos');
 }
 
 // Cargar datos desde Supabase y, si falla, desde localStorage.
 async function loadNotes() {
   try {
-    activeTableName = await resolveActiveTableName();
-    if (!activeTableName) {
-      throw new Error('No se encontró una tabla disponible en Supabase');
-    }
-
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?select=id,titulo,contenido,creada_en,modificada_en&order=creada_en.desc,modificada_en.desc`, {
-      headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const data = await response.json();
-    notes = (data || []).map(mapNoteFromSupabase);
+    notes = await fetchNotesFromSupabase();
     persistLocalNotes();
   } catch (error) {
+    console.warn('Carga inicial desde Supabase falló, usando local o valores por defecto:', error);
     const localNotes = readLocalNotes();
     notes = Array.isArray(localNotes) && localNotes.length ? localNotes : getDefaultNotes();
     persistLocalNotes();
   }
 
   renderNotes();
+}
+
+function initSyncStatus() {
+  setSyncStatus('Iniciando sincronización...');
 }
 
 async function saveNote(note) {
@@ -421,6 +493,10 @@ modalToggle.addEventListener('change', () => {
 });
 
 // Inicializar la app.
-void loadNotes().then(() => {
-  subscribeRealtime();
+initSyncStatus();
+void loadNotes().then(async () => {
+  const isRealtimeConnected = await subscribeRealtime();
+  if (!isRealtimeConnected) {
+    startPollingNotes(3000);
+  }
 });
