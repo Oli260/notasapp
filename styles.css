@@ -21,11 +21,22 @@ body{
 }
 .container{max-width:var(--container);margin:0 auto;padding:2rem}
 .site-header{background:#fff;border-bottom:1px solid rgba(15,23,42,0.04)}
-.header-inner{display:flex;align-items:center;justify-content:space-between;padding:1rem 0}
+.header-inner{display:flex;align-items:center;justify-content:space-between;padding:1rem 0;gap:1rem}
 .logo{font-weight:700;color:#111827;text-decoration:none}
 .logo span{color:var(--accent)}
+.header-actions{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.user-email{color:var(--muted);font-size:.95rem}
 .btn{display:inline-block;padding:.6rem 1rem;border-radius:12px;background:var(--primary);color:#fff;text-decoration:none;border:none;cursor:pointer}
 .new-note{background:linear-gradient(180deg,var(--primary),var(--accent));box-shadow:0 6px 18px rgba(91,75,255,0.18)}
+.auth-panel{padding:2rem 0 0}
+.auth-card{max-width:480px;background:var(--card);padding:1.5rem;border-radius:16px;box-shadow:var(--shadow)}
+.auth-card h2{margin:0 0 .3rem;font-size:1.3rem}
+.auth-card p{margin:0 0 1rem;color:var(--muted)}
+.auth-form{display:grid;gap:.75rem}
+.auth-actions{display:flex;gap:.75rem;flex-wrap:wrap}
+.auth-message{min-height:1.25rem;margin-top:.7rem;color:var(--primary);font-size:.95rem}
+.auth-message.error{color:#b91c1c}
+.hidden{display:none !important}
 .main-content{padding-top:2.5rem}
 .page-title{font-size:2rem;margin:0 0 .25rem}
 .subtitle{color:var(--muted);margin:0 0 1.75rem}
@@ -64,7 +75,7 @@ body{
 .note-form{margin-top:1rem}
 .field{display:block;margin-bottom:1rem}
 .field-label{display:block;margin-bottom:.5rem;font-weight:600;font-size:.9rem}
-input[type="text"],textarea{width:100%;padding:.9rem;border-radius:10px;border:1px solid rgba(15,23,42,0.06);background:rgba(15,23,42,0.03);font-size:1rem}
+input[type="text"],input[type="email"],input[type="password"],textarea{width:100%;padding:.9rem;border-radius:10px;border:1px solid rgba(15,23,42,0.06);background:rgba(15,23,42,0.03);font-size:1rem}
 textarea{resize:vertical}
 .categories .category-options{display:flex;gap:.5rem}
 .categories input{display:none}

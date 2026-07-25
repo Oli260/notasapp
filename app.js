@@ -5,6 +5,9 @@ const SUPABASE_ANON_KEY = 'sb_publishable_A3SfDiwPNpAMKGcWfP1UUg_TYRBE_eB';
 const STORAGE_KEY = 'notes-app-data';
 const TABLE_CANDIDATES = ['notas', 'nota'];
 let activeTableName = 'notas';
+let currentUserId = null;
+let currentAccessToken = null;
+let currentUserEmail = '';
 
 const supabaseClient = (() => {
   if (typeof supabase !== 'undefined' && supabase?.createClient) {
@@ -41,6 +44,21 @@ const contentInput = noteForm.querySelector('textarea[name="content"]');
 const chatForm = document.getElementById('chat-form');
 const chatQuestionInput = document.getElementById('chat-question');
 const chatMessages = document.getElementById('chat-messages');
+const authPanel = document.getElementById('auth-panel');
+const authForm = document.getElementById('auth-form');
+const authEmailInput = document.getElementById('auth-email');
+const authPasswordInput = document.getElementById('auth-password');
+const authMessage = document.getElementById('auth-message');
+const authTitle = document.getElementById('auth-title');
+const authSubtitle = document.getElementById('auth-subtitle');
+const authSubmitBtn = document.getElementById('auth-submit-btn');
+const toggleAuthModeBtn = document.getElementById('toggle-auth-mode-btn');
+const logoutBtn = document.getElementById('logout-btn');
+const appContent = document.getElementById('app-content');
+const userEmail = document.getElementById('user-email');
+const headerActions = document.getElementById('header-actions');
+let isSignUpMode = false;
+
 function getDefaultNotes() {
   return [
     {
@@ -84,6 +102,8 @@ function persistLocalNotes() {
 }
 
 function serializeNoteForSupabase(note) {
+  const userId = note.user_id || currentUserId;
+
   return {
     id: note.id,
     titulo: note.title,
@@ -92,7 +112,8 @@ function serializeNoteForSupabase(note) {
       category: note.category || 'trabajo'
     }),
     creada_en: new Date().toISOString(),
-    modificada_en: new Date().toISOString()
+    modificada_en: new Date().toISOString(),
+    ...(userId ? { user_id: userId } : {})
   };
 }
 
@@ -115,19 +136,18 @@ function mapNoteFromSupabase(row) {
     title: row.titulo || '',
     category,
     content,
-    createdAt: row.creada_en || 'Ahora'
+    createdAt: row.creada_en || 'Ahora',
+    user_id: row.user_id || null
   };
 }
 
 async function resolveActiveTableName() {
+  await ensureSupabaseSession();
+
   for (const candidate of TABLE_CANDIDATES) {
     try {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${candidate}?select=id&limit=1`, {
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json'
-        }
+        headers: getSupabaseHeaders()
       });
 
       if (response.ok) {
@@ -145,6 +165,125 @@ function setSyncStatus(message) {
   if (syncStatus) {
     syncStatus.textContent = message;
   }
+}
+
+function setAuthMode(signUp) {
+  isSignUpMode = signUp;
+  if (authTitle) authTitle.textContent = signUp ? 'Crea tu cuenta' : 'Inicia sesión';
+  if (authSubtitle) authSubtitle.textContent = signUp ? 'Regístrate con tu email y contraseña para guardar tus notas.' : 'Accede con tu email y contraseña para ver tu cuaderno.';
+  if (authSubmitBtn) authSubmitBtn.textContent = signUp ? 'Registrarme' : 'Entrar';
+  if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = signUp ? 'Ya tengo cuenta' : 'Crear cuenta';
+}
+
+function getAuthErrorMessage(error) {
+  const message = error?.message || '';
+  const code = error?.code || '';
+  const status = error?.status || error?.statusCode || '';
+
+  if (status === 429 || code === 'over_email_send_rate_limit' || /rate limit/i.test(message)) {
+    return 'Se superó el límite de correos de Supabase. Espera unos minutos y vuelve a intentarlo con otro correo.';
+  }
+
+  if (/invalid login credentials|invalid_credentials/i.test(message)) {
+    return 'Credenciales inválidas. Verifica tu email y contraseña.';
+  }
+
+  if (/email not confirmed|confirm your email/i.test(message)) {
+    return 'Tu cuenta ya fue creada, pero debes confirmar el email antes de entrar.';
+  }
+
+  if (/user already registered|already registered|user_exists/i.test(message)) {
+    return 'Ese email ya tiene una cuenta. Prueba a iniciar sesión.';
+  }
+
+  return error?.message || 'No se pudo completar la acción.';
+}
+
+function renderAuthState() {
+  const isLoggedIn = Boolean(currentUserId);
+
+  if (authPanel) {
+    authPanel.classList.toggle('hidden', isLoggedIn);
+  }
+
+  if (appContent) {
+    appContent.classList.toggle('hidden', !isLoggedIn);
+  }
+
+  if (headerActions) {
+    headerActions.querySelectorAll('button').forEach((button) => {
+      button.classList.toggle('hidden', !isLoggedIn && button.id !== 'logout-btn');
+    });
+  }
+
+  if (logoutBtn) {
+    logoutBtn.classList.toggle('hidden', !isLoggedIn);
+  }
+
+  if (userEmail) {
+    userEmail.textContent = isLoggedIn ? (currentUserEmail || 'Usuario') : '';
+  }
+
+  const modalButton = document.getElementById('open-modal-btn');
+  if (modalButton) {
+    modalButton.classList.toggle('hidden', !isLoggedIn);
+  }
+}
+
+async function ensureSupabaseSession() {
+  if (!supabaseClient) {
+    return null;
+  }
+
+  if (currentUserId && currentAccessToken) {
+    return currentUserId;
+  }
+
+  try {
+    const { data: { session }, error } = await supabaseClient.auth.getSession();
+    if (error) {
+      throw error;
+    }
+
+    if (session?.access_token) {
+      currentAccessToken = session.access_token;
+    }
+
+    if (session?.user?.id) {
+      currentUserId = session.user.id;
+      currentAccessToken = session.access_token;
+      currentUserEmail = session.user.email || '';
+      renderAuthState();
+      return currentUserId;
+    }
+
+    currentUserId = null;
+    currentAccessToken = null;
+    currentUserEmail = '';
+    renderAuthState();
+    return null;
+  } catch (error) {
+    console.warn('No se pudo autenticar con Supabase:', error);
+    currentUserId = null;
+    currentAccessToken = null;
+    currentUserEmail = '';
+    return null;
+  }
+}
+
+function getSupabaseHeaders() {
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    'Content-Type': 'application/json'
+  };
+
+  if (currentAccessToken) {
+    headers.Authorization = `Bearer ${currentAccessToken}`;
+  } else {
+    headers.Authorization = `Bearer ${SUPABASE_ANON_KEY}`;
+  }
+
+  return headers;
 }
 
 function applyRealtimeChange(row, eventType) {
@@ -217,12 +356,10 @@ async function fetchNotesFromSupabase() {
     throw new Error('No se encontró una tabla disponible en Supabase');
   }
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?select=id,titulo,contenido,creada_en,modificada_en&order=creada_en.desc,modificada_en.desc`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      'Content-Type': 'application/json'
-    }
+  await ensureSupabaseSession();
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?select=id,titulo,contenido,creada_en,modificada_en,user_id&order=creada_en.desc,modificada_en.desc`, {
+    headers: getSupabaseHeaders()
   });
 
   if (!response.ok) {
@@ -259,6 +396,13 @@ function startPollingNotes() {
 // Cargar datos desde Supabase y, si falla, desde localStorage.
 async function loadNotes() {
   try {
+    const userId = await ensureSupabaseSession();
+    if (!userId) {
+      notes = [];
+      renderNotes();
+      return;
+    }
+
     notes = await fetchNotesFromSupabase();
     persistLocalNotes();
   } catch (error) {
@@ -285,12 +429,15 @@ async function saveNote(note) {
       throw new Error('No se encontró una tabla disponible en Supabase');
     }
 
+    await ensureSupabaseSession();
     const payload = serializeNoteForSupabase(note);
 
     if (supabaseClient) {
-      const { error } = await supabaseClient
+      const query = supabaseClient
         .from(activeTableName)
         .upsert(payload, { onConflict: 'id', returning: 'minimal' });
+
+      const { error } = await query;
       if (error) {
         throw error;
       }
@@ -327,6 +474,8 @@ async function deleteNoteFromSupabase(noteId) {
       throw new Error('No se encontró una tabla disponible en Supabase');
     }
 
+    await ensureSupabaseSession();
+
     if (supabaseClient) {
       const { error } = await supabaseClient
         .from(activeTableName)
@@ -338,11 +487,7 @@ async function deleteNoteFromSupabase(noteId) {
     } else {
       const response = await fetch(`${SUPABASE_URL}/rest/v1/${activeTableName}?id=eq.${encodeURIComponent(noteId)}`, {
         method: 'DELETE',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json'
-        }
+        headers: getSupabaseHeaders()
       });
 
       if (!response.ok) {
@@ -525,6 +670,92 @@ async function handleSubmit(event) {
   closeModal();
 }
 
+async function handleAuthSubmit(event) {
+  event.preventDefault();
+  const email = authEmailInput?.value.trim();
+  const password = authPasswordInput?.value;
+
+  if (!email || !password) {
+    if (authMessage) {
+      authMessage.textContent = 'Completa email y contraseña.';
+      authMessage.classList.add('error');
+    }
+    return;
+  }
+
+  if (!supabaseClient) {
+    if (authMessage) {
+      authMessage.textContent = 'Supabase no está disponible.';
+      authMessage.classList.add('error');
+    }
+    return;
+  }
+
+  if (authMessage) {
+    authMessage.textContent = 'Procesando...';
+    authMessage.classList.remove('error');
+  }
+
+  try {
+    const { data, error } = isSignUpMode
+      ? await supabaseClient.auth.signUp({ email, password })
+      : await supabaseClient.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      throw error;
+    }
+
+    currentUserId = data?.user?.id || null;
+    currentAccessToken = data?.session?.access_token || null;
+    currentUserEmail = data?.user?.email || data?.session?.user?.email || '';
+
+    if (authMessage) {
+      if (isSignUpMode && !data?.session) {
+        authMessage.textContent = 'Cuenta creada. Revisa tu correo para confirmar tu cuenta y luego inicia sesión.';
+      } else {
+        authMessage.textContent = isSignUpMode ? 'Cuenta creada. Revisa tu email si necesitas confirmar la cuenta.' : 'Sesión iniciada.';
+      }
+      authMessage.classList.remove('error');
+    }
+
+    if (authForm) {
+      authForm.reset();
+    }
+
+    if (currentUserId && currentAccessToken) {
+      await loadNotes();
+      renderAuthState();
+    } else {
+      renderAuthState();
+    }
+  } catch (error) {
+    if (authMessage) {
+      authMessage.textContent = getAuthErrorMessage(error);
+      authMessage.classList.add('error');
+    }
+  }
+}
+
+async function handleLogout() {
+  try {
+    if (supabaseClient?.auth?.signOut) {
+      await supabaseClient.auth.signOut();
+    }
+    currentUserId = null;
+    currentAccessToken = null;
+    currentUserEmail = '';
+    notes = [];
+    renderNotes();
+    renderAuthState();
+    if (authMessage) {
+      authMessage.textContent = '';
+      authMessage.classList.remove('error');
+    }
+  } catch (error) {
+    console.error('Error al cerrar sesión:', error);
+  }
+}
+
 // Eventos del chat.
 chatForm?.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -564,11 +795,23 @@ notesGrid.addEventListener('click', (event) => {
 });
 
 // Eventos del modal.
-openModalBtn.addEventListener('click', openModal);
-closeModalBtn.addEventListener('click', closeModal);
-cancelNoteBtn.addEventListener('click', closeModal);
-noteForm.addEventListener('submit', (event) => {
+openModalBtn?.addEventListener('click', openModal);
+closeModalBtn?.addEventListener('click', closeModal);
+cancelNoteBtn?.addEventListener('click', closeModal);
+noteForm?.addEventListener('submit', (event) => {
   void handleSubmit(event);
+});
+
+authForm?.addEventListener('submit', (event) => {
+  void handleAuthSubmit(event);
+});
+
+toggleAuthModeBtn?.addEventListener('click', () => {
+  setAuthMode(!isSignUpMode);
+});
+
+logoutBtn?.addEventListener('click', () => {
+  void handleLogout();
 });
 
 // Cerrar al hacer clic fuera del contenido del modal.
@@ -580,7 +823,13 @@ modalToggle.addEventListener('change', () => {
 
 // Inicializar la app.
 initSyncStatus();
+setAuthMode(false);
+renderAuthState();
 void loadNotes().then(async () => {
+  if (!currentUserId) {
+    return;
+  }
+
   const isRealtimeConnected = await subscribeRealtime();
   startPollingNotes();
   if (!isRealtimeConnected) {

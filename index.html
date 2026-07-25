@@ -14,11 +14,31 @@
   <header class="site-header">
     <div class="container header-inner">
       <a href="#" class="logo">Notas<span>App</span></a>
-      <button type="button" class="btn new-note" id="open-modal-btn">+ Nueva nota</button>
+      <div class="header-actions" id="header-actions">
+        <span class="user-email" id="user-email"></span>
+        <button type="button" class="btn btn-secondary" id="logout-btn">Cerrar sesión</button>
+        <button type="button" class="btn new-note" id="open-modal-btn">+ Nueva nota</button>
+      </div>
     </div>
   </header>
 
-  <main class="container main-content">
+  <section class="container auth-panel" id="auth-panel">
+    <div class="auth-card">
+      <h2 id="auth-title">Inicia sesión</h2>
+      <p id="auth-subtitle">Accede con tu email y contraseña para ver tu cuaderno.</p>
+      <form class="auth-form" id="auth-form">
+        <input type="email" id="auth-email" name="email" placeholder="tu@email.com" autocomplete="email" required>
+        <input type="password" id="auth-password" name="password" placeholder="Contraseña" autocomplete="current-password" required>
+        <div class="auth-actions">
+          <button type="submit" class="btn btn-primary" id="auth-submit-btn">Entrar</button>
+          <button type="button" class="btn btn-secondary" id="toggle-auth-mode-btn">Crear cuenta</button>
+        </div>
+      </form>
+      <p class="auth-message" id="auth-message" role="status"></p>
+    </div>
+  </section>
+
+  <main class="container main-content" id="app-content">
     <h1 class="page-title">Mis notas</h1>
     <p class="subtitle">Todo lo que no quiero olvidar, en un solo lugar.</p>
     <div class="sync-status" id="sync-status">Sincronizando...</div>
