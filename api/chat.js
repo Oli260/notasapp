@@ -6,9 +6,9 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const apiKey = process.env.GROQ_API_KEU;
+  const apiKey = process.env.GROQ_API_KEY || process.env.GROQ_API_KEU;
   if (!apiKey) {
-    return res.status(500).json({ error: 'GROQ_API_KEU no está configurada' });
+    return res.status(500).json({ error: 'No hay una clave de Groq configurada. Añade GROQ_API_KEY al entorno.' });
   }
 
   let body;
@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'openai/gpt-oss-20b',
+        model: 'llama-3.3-70b-versatile',
         input: prompt
       })
     });
@@ -55,7 +55,7 @@ module.exports = async (req, res) => {
     }
 
     const data = await response.json();
-    const answer = data.output_text || (data.output?.[0]?.content?.[0]?.text || null);
+    const answer = data.output_text || data?.output?.[0]?.content?.[0]?.text || data?.choices?.[0]?.message?.content || null;
 
     return res.status(200).json({ answer: answer || 'Groq no devolvió una respuesta.' });
   } catch (error) {
